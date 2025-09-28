@@ -1,0 +1,233 @@
+# GCR最適化版 - モデル含む・venv分離維持・統合アプリ対応
+# 目標: 50GB → 15-20GB (60-70%削減)
+
+# Stage 1: ビルド専用ステージ (動作確認済みGPUイメージ)
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 as builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ビルド依存関係 (最終イメージには含まれない)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10-dev \
+    python3.10-venv \
+    python3-pip \
+    build-essential \
+    cmake \
+    git \
+    git-lfs \
+    wget \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# requirements ファイルをコピー
+COPY requirements.txt ./
+COPY gradio_frontend/requirements.txt ./gradio_frontend/
+COPY gpt_sovits_full/requirements.txt ./gpt_sovits_full/
+COPY facefusion/requirements.txt ./facefusion/
+
+# 1. Wav2lip用venv構築 (サイズ最適化)
+RUN python3.10 -m venv /app/venv && \
+    . /app/venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir \
+        torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir \
+        opencv-python==4.10.0.84 \
+        ffmpeg-python==0.2.0 \
+        numpy==1.24.3 \
+        Pillow==10.4.0 \
+        tqdm==4.66.5 \
+        scipy==1.11.4 \
+        librosa==0.10.2 \
+        gfpgan==1.3.8 \
+        facexlib==0.3.0 \
+        basicsr==1.4.2 \
+        numba==0.60.0 \
+        imageio==2.36.1 \
+        imageio-ffmpeg==0.5.1 \
+        realesrgan==0.3.0 && \
+    # キャッシュクリア
+    pip cache purge && \
+    find /app/venv -name "*.pyc" -delete && \
+    find /app/venv -name "__pycache__" -exec rm -rf {} + || true
+
+# 2. Gradio用venv構築 (統合アプリ用依存関係含む)
+RUN python3.10 -m venv /app/gradio_venv && \
+    . /app/gradio_venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir \
+        gradio>=5.0.0 \
+        Pillow>=9.0.0 \
+        numpy>=1.21.0 \
+        psutil>=5.9.0 \
+        librosa>=0.10.0 \
+        opencv-python==4.10.0.84 \
+        ffmpeg-python==0.2.0 \
+        scipy==1.11.4 \
+        tqdm==4.66.5 && \
+    pip cache purge && \
+    find /app/gradio_venv -name "*.pyc" -delete && \
+    find /app/gradio_venv -name "__pycache__" -exec rm -rf {} + || true
+
+# 3. GPT-SoVITS用venv構築 (条件付きインストール)
+RUN python3.10 -m venv /app/sovits_venv && \
+    . /app/sovits_venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir \
+        torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir -r /app/gpt_sovits_full/requirements.txt || true && \
+    pip cache purge && \
+    find /app/sovits_venv -name "*.pyc" -delete && \
+    find /app/sovits_venv -name "__pycache__" -exec rm -rf {} + || true
+
+# 4. FaceFusion用venv構築 (条件付きインストール)
+RUN python3.10 -m venv /app/facefusion_venv && \
+    . /app/facefusion_venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir -r /app/facefusion/requirements.txt || true && \
+    pip cache purge && \
+    find /app/facefusion_venv -name "*.pyc" -delete && \
+    find /app/facefusion_venv -name "__pycache__" -exec rm -rf {} + || true
+
+# 5. Llama用venv構築 (軽量)
+RUN python3.10 -m venv /app/llama_venv && \
+    . /app/llama_venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir llama-cpp-python==0.3.2 || true && \
+    pip cache purge && \
+    find /app/llama_venv -name "*.pyc" -delete && \
+    find /app/llama_venv -name "__pycache__" -exec rm -rf {} + || true
+
+# Stage 2: ランタイム専用ステージ (動作確認済みGPUランタイム)
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04 as runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Tokyo \
+    CUDA_VISIBLE_DEVICES=0 \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
+# ランタイム依存関係のみ (ビルドツール除外)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3-pip \
+    wget \
+    curl \
+    ffmpeg \
+    libsndfile1 \
+    libportaudio2 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# ビルダーから最適化されたvenvをコピー
+COPY --from=builder /app/venv /app/venv
+COPY --from=builder /app/gradio_venv /app/gradio_venv
+COPY --from=builder /app/sovits_venv /app/sovits_venv
+COPY --from=builder /app/facefusion_venv /app/facefusion_venv
+COPY --from=builder /app/llama_venv /app/llama_venv
+
+# アプリケーションコードをコピー (.dockerignoreで最適化)
+COPY . /app/
+
+# 必要なディレクトリ作成
+RUN mkdir -p \
+    /app/checkpoints \
+    /app/utils \
+    /app/facefusion/.assets/models \
+    /app/gpt_sovits_full/pretrained_models \
+    /app/output \
+    /tmp/gradio_three_stage
+
+# FaceFusionモデルをホストからコピー（NSFWモデル含む）
+COPY facefusion/.assets/models/*.onnx /app/facefusion/.assets/models/
+COPY facefusion/.assets/models/*.hash /app/facefusion/.assets/models/
+
+# モデル一括ダウンロードスクリプト (並列化で高速化)
+RUN cat > /app/download_models.sh <<'EOF'
+#!/bin/bash
+set -e
+
+echo "Downloading models in parallel..."
+
+# 並列ダウンロード関数
+download_model() {
+    local url=$1
+    local path=$2
+    local name=$3
+
+    if [ ! -f "$path" ]; then
+        echo "Downloading $name..."
+        mkdir -p "$(dirname "$path")"
+        wget -q --timeout=60 --tries=3 -O "$path" "$url" || {
+            echo "Failed to download $name"
+            rm -f "$path"
+            return 1
+        }
+        echo "✓ $name downloaded"
+    else
+        echo "✓ $name already exists"
+    fi
+}
+
+# 並列でダウンロード
+download_model \
+    "https://github.com/Rudrabha/Wav2Lip/releases/download/models/wav2lip_gan.pth" \
+    "/app/checkpoints/wav2lip_gan.pth" \
+    "Wav2lip GAN model" &
+
+download_model \
+    "https://github.com/Rudrabha/Wav2Lip/releases/download/models/wav2lip.pth" \
+    "/app/checkpoints/wav2lip.pth" \
+    "Wav2lip checkpoint" &
+
+download_model \
+    "https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth" \
+    "/app/checkpoints/s3fd.pth" \
+    "Face detection model" &
+
+download_model \
+    "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth" \
+    "/app/checkpoints/GFPGANv1.4.pth" \
+    "GFPGAN model" &
+
+# 全ダウンロード完了まで待機
+wait
+
+echo "All models downloaded successfully!"
+EOF
+
+# モデルダウンロード実行
+RUN chmod +x /app/download_models.sh && /app/download_models.sh
+
+# ファイル権限設定
+RUN find /app -maxdepth 2 -name "*.py" -type f -exec chmod +x {} \;
+
+# SoVITSパス修正（永続化）
+RUN ln -sf /app/gpt_sovits_full/GPT_SoVITS/pretrained_models/s2Gv4.pth /app/GPT_SoVITS/pretrained_models/gsv-v4-pretrained/s2Gv4.pth && \
+    rm -f /app/GPT_SoVITS/pretrained_models/gsv-v4-pretrained/vocoder.pth && \
+    ln -sf /app/gpt_sovits_full/GPT_SoVITS/pretrained_models/gpt_sovits_models_vocoder.pth /app/GPT_SoVITS/pretrained_models/gsv-v4-pretrained/vocoder.pth
+
+# ポート
+EXPOSE 8080
+
+# 環境変数設定とPYTHONPATH
+ENV PYTHONPATH="/app/gradio_venv/lib/python3.10/site-packages:/app/venv/lib/python3.10/site-packages:/app/sovits_venv/lib/python3.10/site-packages:/app/facefusion_venv/lib/python3.10/site-packages:/app/llama_venv/lib/python3.10/site-packages:/app:$PYTHONPATH"
+
+WORKDIR /app/gradio_frontend
+
+# ポータブル統合アプリ直接起動 (8080ポート)
+CMD ["/app/gradio_venv/bin/python", "wav2lip_sovits_llama_integrated_portable.py"]

@@ -1,0 +1,199 @@
+# 統合アプリ用 .dockerignore - venv分離維持・モデル含む・サイズ最適化
+
+# ============ 既存VIRTUAL ENVIRONMENTS (除外) ============
+# Docker内で新しく作成するため、既存のvenvは除外
+venv/
+*_venv/
+*_env/
+env/
+ENV/
+.venv/
+gradio_venv/
+sovits_venv/
+facefusion_venv/
+llama_venv/
+gpt_sovits_env/
+facefusion_env/
+
+# ============ 開発・ビルドファイル ============
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# IDE・エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Version control
+.git/
+.gitignore
+.github/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ============ RUNPOD固有ファイル (除外) ============
+# Runpodハンドラー（GCRでは不要）
+runpod_handler.py
+*runpod*
+runpod-volume/
+.runpod/
+
+# 古いDockerfile (新版のみ使用)
+Dockerfile.optimized
+docker-build-optimized.sh
+
+# ============ 開発・テストデータ ============
+# Sample/test files (本番不要)
+samples/
+sample_*/
+test_*/
+tests/
+*.test.*
+example*/
+
+# テスト用メディアファイル
+test_video.*
+test_audio.*
+sample_*.*
+
+# ============ 出力・一時ファイル ============
+# 出力ディレクトリ (実行時作成)
+output/
+outputs/
+results/
+temp/
+tmp/
+*.tmp
+*.log
+
+# 既存の生成済みファイル (実行時作成)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.m4a
+*.flac
+
+# ただし、サンプル用の小さなファイルは保持
+!sample_input_small.*
+
+# ============ ドキュメント ============
+# ドキュメンテーション (本番不要)
+*.md
+!README.md
+docs/
+documentation/
+
+# ============ 設定・秘密情報 ============
+# 環境ファイル
+.env
+.env.*
+*.key
+*.pem
+*.p12
+
+# ============ システムファイル ============
+# macOS
+.DS_Store
+.Trashes
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# ============ Node.js (もしあれば) ============
+node_modules/
+package-lock.json
+yarn.lock
+*.tgz
+
+# ============ Jupyter ============
+*.ipynb
+.ipynb_checkpoints/
+
+# ============ 研究・データ ============
+# 大きなデータファイル
+data/
+datasets/
+*.csv
+*.json
+*.xml
+*.parquet
+
+# ============ バックアップ ============
+*.bak
+*.backup
+*.old
+*.orig
+
+# ============ Docker関連 ============
+# 他のDockerファイル (使用中のもの以外)
+Dockerfile*
+!Dockerfile.gcr-integrated
+docker-compose*
+.dockerignore*
+!.dockerignore.integrated
+
+# ============ キャッシュ ============
+.cache/
+cache/
+__cache__/
+
+# ============ 言語固有 ============
+# Python
+*.pyo
+*.pyd
+
+# C/C++
+*.o
+*.a
+*.so
+*.dylib
+
+# ============ 重要: 含めるファイル ============
+# 明示的に含めるファイル（除外されても強制的に含める）
+
+# アプリケーション本体
+!gradio_frontend/wav2lip_sovits_llama_integrated.py
+!gradio_frontend/sovits_wav2lip_integration.py
+!gradio_frontend/llamacpp_integration.py
+!gradio_frontend/facefusion_integration.py
+
+# 必須設定ファイル
+!requirements.txt
+!gradio_frontend/requirements.txt
+!gpt_sovits_full/requirements.txt
+!facefusion/requirements.txt
+
+# 必須コードディレクトリ
+!face_detection/
+!Wav2Lip/
+!models/
+!utils/
+
+# 注意: モデルファイル (*.pth, *.onnx等) は含める
+# .dockerignoreでは除外せず、Dockerfile内でダウンロード

@@ -1,0 +1,11 @@
+numpy>=2.0.0,<2.3.0
+onnx>=1.18.0
+onnxruntime-gpu>=1.19.2
+opencv-python>=4.10.0
+psutil>=7.0.0
+tqdm>=4.60.0
+scipy>=1.13.0
+pillow
+insightface
+gradio>=5.0.0
+gradio-rangeslider>=0.0.8

@@ -1,0 +1,172 @@
+# GCR-optimized multi-stage build for Cloud Run GPU
+# Target size: <5GB (vs 50GB current)
+
+# Stage 1: Base Python with minimal CUDA support
+FROM python:3.10-slim as base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install minimal runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget curl \
+    ffmpeg \
+    libsndfile1 \
+    libglib2.0-0 libsm6 libxext6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Stage 2: Build stage - install heavy dependencies
+FROM base as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only main requirements for Wav2lip core
+COPY requirements.txt ./
+COPY gradio_frontend/requirements.txt ./gradio_requirements.txt
+
+# Create single optimized virtual environment
+RUN python -m venv /app/venv && \
+    . /app/venv/bin/activate && \
+    pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir \
+        torch==2.4.1+cu121 torchvision==0.19.1+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir \
+        opencv-python-headless==4.10.0.84 \
+        gradio==4.44.0 \
+        numpy==1.24.3 \
+        Pillow==10.4.0 \
+        imageio==2.36.1 \
+        tqdm==4.66.5 \
+        scipy==1.11.4 \
+        librosa==0.10.2 \
+        numba==0.60.0 && \
+    # Clean up pip cache and temporary files
+    pip cache purge && \
+    find /app/venv -name "*.pyc" -delete && \
+    find /app/venv -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Stage 3: Minimal runtime image
+FROM base as runtime
+
+WORKDIR /app
+
+# Copy optimized virtual environment
+COPY --from=builder /app/venv /app/venv
+
+# Copy only essential application files
+COPY gradio_frontend/wav2lip_sovits_llama_integrated.py /app/
+COPY face_detection /app/face_detection
+COPY models /app/models
+COPY Wav2Lip /app/Wav2Lip
+
+# Create minimal directory structure
+RUN mkdir -p /app/{checkpoints,output}
+
+# Create GCS model loading script
+RUN cat > /app/load_models.py <<'EOF'
+import os
+import subprocess
+import logging
+from pathlib import Path
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def download_from_gcs(bucket_name, object_name, local_path):
+    """Download model from Google Cloud Storage"""
+    try:
+        if os.path.exists(local_path):
+            logger.info(f"Model already exists: {local_path}")
+            return True
+
+        # Use gsutil if available, otherwise wget from public URL
+        if bucket_name and object_name:
+            cmd = f"gsutil cp gs://{bucket_name}/{object_name} {local_path}"
+            logger.info(f"Downloading from GCS: {cmd}")
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info(f"Successfully downloaded: {local_path}")
+                return True
+
+        # Fallback to direct download for public models
+        model_urls = {
+            "wav2lip_gan.pth": "https://github.com/Rudrabha/Wav2Lip/releases/download/models/wav2lip_gan.pth",
+            "s3fd.pth": "https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth",
+        }
+
+        filename = os.path.basename(local_path)
+        if filename in model_urls:
+            cmd = f"wget -q -O {local_path} {model_urls[filename]}"
+            logger.info(f"Downloading from URL: {cmd}")
+            result = subprocess.run(cmd, shell=True)
+            if result.returncode == 0:
+                logger.info(f"Successfully downloaded: {local_path}")
+                return True
+
+        logger.error(f"Failed to download: {local_path}")
+        return False
+
+    except Exception as e:
+        logger.error(f"Error downloading {local_path}: {e}")
+        return False
+
+def load_required_models():
+    """Load only essential models for Wav2lip"""
+    models = [
+        ("wav2lip_gan.pth", "/app/checkpoints/wav2lip_gan.pth"),
+        ("s3fd.pth", "/app/checkpoints/s3fd.pth"),
+    ]
+
+    bucket = os.getenv("MODEL_BUCKET_NAME", "")
+
+    for model_name, local_path in models:
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        download_from_gcs(bucket, f"models/{model_name}", local_path)
+
+if __name__ == "__main__":
+    load_required_models()
+EOF
+
+# Create GCR startup script (remove all Runpod references)
+RUN cat > /app/start.sh <<'EOF'
+#!/bin/bash
+set -e
+
+echo "Starting Wav2lip on Cloud Run GPU..."
+
+# Activate virtual environment
+source /app/venv/bin/activate
+
+# Load models (from GCS or direct download)
+python /app/load_models.py
+
+# Start Gradio interface
+cd /app && python wav2lip_sovits_llama_integrated.py \
+    --server-name 0.0.0.0 \
+    --server-port ${PORT:-8080} \
+    --share=False
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Set proper permissions
+RUN find /app -name "*.py" -type f -exec chmod +x {} \;
+
+# Cloud Run expects port 8080 by default
+EXPOSE 8080
+
+# Remove health check for Cloud Run (handled externally)
+# Use exec form for better signal handling
+CMD ["./start.sh"]

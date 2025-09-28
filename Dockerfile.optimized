@@ -1,0 +1,217 @@
+# Optimized multi-stage build for Runpod Serverless GPU
+# Stage 1: Base runtime with CUDA
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04 as runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Tokyo \
+    CUDA_VISIBLE_DEVICES=0 \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
+    HF_HUB_CACHE=/runpod-volume/huggingface-cache \
+    PYTHONUNBUFFERED=1
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 python3.10-venv python3-pip \
+    wget curl \
+    ffmpeg \
+    libsndfile1 libportaudio2 \
+    libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Build stage for pip packages
+FROM runtime as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10-dev \
+    git git-lfs unzip \
+    build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only requirements files first (better caching)
+COPY requirements.txt ./
+COPY gradio_frontend/requirements.txt ./gradio_frontend/
+COPY gpt_sovits_full/requirements.txt ./gpt_sovits_full/
+COPY facefusion/requirements.txt ./facefusion/
+
+# Create and setup main venv for Wav2lip (minimal deps)
+RUN python3.10 -m venv /app/venv && \
+    . /app/venv/bin/activate && \
+    pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir \
+        torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 \
+        --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir \
+        onnxruntime-gpu==1.22.0 \
+        opencv-python==4.10.0.84 \
+        ffmpeg-python==0.2.0 \
+        numpy==1.24.3 \
+        Pillow==10.4.0 \
+        gradio==4.44.0 \
+        tqdm==4.66.5 \
+        scipy==1.11.4 \
+        librosa==0.10.2 \
+        numba==0.60.0 \
+        imageio==2.36.1 \
+        imageio-ffmpeg==0.5.1
+
+# Create lightweight Gradio venv
+RUN python3.10 -m venv /app/gradio_venv && \
+    . /app/gradio_venv/bin/activate && \
+    pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir gradio>=5.0.0 Pillow>=9.0.0 numpy>=1.21.0
+
+# Stage 3: Final runtime image
+FROM runtime
+
+WORKDIR /app
+
+# Copy virtual environments from builder
+COPY --from=builder /app/venv /app/venv
+COPY --from=builder /app/gradio_venv /app/gradio_venv
+
+# Copy application code (models excluded by .dockerignore)
+COPY . /app/
+
+# Create necessary directories
+RUN mkdir -p \
+    /app/checkpoints \
+    /app/utils \
+    /app/facefusion/.assets/models \
+    /app/gpt_sovits_full/pretrained_models \
+    /app/output \
+    /tmp/gradio_three_stage \
+    /runpod-volume/models
+
+# Create model download script
+RUN cat > /app/download_models.sh <<'EOF'
+#!/bin/bash
+set -e
+
+echo "Checking and downloading models..."
+
+# Function to download file if not exists
+download_if_missing() {
+    local url=$1
+    local path=$2
+    local name=$3
+
+    if [ ! -f "$path" ]; then
+        echo "Downloading $name..."
+        wget -q --show-progress -O "$path" "$url" || {
+            echo "Failed to download $name"
+            rm -f "$path"
+            return 1
+        }
+        echo "$name downloaded successfully"
+    else
+        echo "$name already exists"
+    fi
+}
+
+# Create directories if not exist
+mkdir -p /app/checkpoints
+mkdir -p /app/facefusion/.assets/models
+mkdir -p /app/gpt_sovits_full/pretrained_models
+
+# Check if models are in Runpod volume
+if [ -d "/runpod-volume/models" ]; then
+    echo "Checking Runpod volume for models..."
+
+    # Link existing models from volume
+    for model in wav2lip_gan.pth wav2lip.pth s3fd.pth mobilenet.pth GFPGANv1.4.pth; do
+        if [ -f "/runpod-volume/models/$model" ]; then
+            ln -sf "/runpod-volume/models/$model" "/app/checkpoints/$model"
+            echo "Linked $model from volume"
+        fi
+    done
+fi
+
+# Download only essential Wav2lip models if not present
+if [ ! -f "/app/checkpoints/wav2lip_gan.pth" ]; then
+    download_if_missing \
+        "https://github.com/Rudrabha/Wav2Lip/releases/download/models/wav2lip_gan.pth" \
+        "/app/checkpoints/wav2lip_gan.pth" \
+        "Wav2lip GAN model"
+fi
+
+if [ ! -f "/app/checkpoints/s3fd.pth" ]; then
+    download_if_missing \
+        "https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth" \
+        "/app/checkpoints/s3fd.pth" \
+        "Face detection model"
+fi
+
+echo "Model check complete!"
+EOF
+
+RUN chmod +x /app/download_models.sh
+
+# Create optimized startup script
+RUN cat > /app/start.sh <<'EOF'
+#!/bin/bash
+set -e
+
+echo "Starting Wav2Lip System on Runpod..."
+
+# Download models on first run
+/app/download_models.sh
+
+# Check if running on Runpod
+if [ ! -z "$RUNPOD_POD_ID" ]; then
+    echo "Detected Runpod environment: $RUNPOD_POD_ID"
+
+    # Use Runpod volume for persistent storage
+    if [ -d "/runpod-volume" ]; then
+        echo "Using Runpod volume for models"
+
+        # Create symlinks for model directories if they exist
+        if [ -d "/runpod-volume/models/wav2lip" ]; then
+            for f in /runpod-volume/models/wav2lip/*; do
+                [ -f "$f" ] && ln -sf "$f" /app/checkpoints/ 2>/dev/null || true
+            done
+        fi
+
+        if [ -d "/runpod-volume/models/facefusion" ]; then
+            for f in /runpod-volume/models/facefusion/*; do
+                [ -f "$f" ] && ln -sf "$f" /app/facefusion/.assets/models/ 2>/dev/null || true
+            done
+        fi
+
+        if [ -d "/runpod-volume/models/sovits" ]; then
+            for f in /runpod-volume/models/sovits/*; do
+                [ -f "$f" ] && ln -sf "$f" /app/gpt_sovits_full/pretrained_models/ 2>/dev/null || true
+            done
+        fi
+    fi
+fi
+
+# Start application
+if [ "$RUN_MODE" = "handler" ]; then
+    echo "Starting Runpod handler mode..."
+    cd /app && python3 runpod_handler.py
+else
+    echo "Starting Gradio interface..."
+    cd /app/gradio_frontend && \
+    source /app/gradio_venv/bin/activate && \
+    python wav2lip_sovits_llama_integrated.py --server-name 0.0.0.0 --server-port ${PORT:-7866}
+fi
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Set permissions for Python files
+RUN find /app -maxdepth 2 -name "*.py" -type f | xargs -r chmod +x || true
+
+# Expose ports
+EXPOSE 7860 7866
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:7866/ || exit 1
+
+# Run startup script
+CMD ["/app/start.sh"]

@@ -1,0 +1,191 @@
+# GCR-optimized .dockerignore - Aggressive size reduction
+
+# ============ MODELS & HEAVY FILES ============
+# All model files (will be downloaded at runtime)
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pkl
+*.h5
+*.hdf5
+*.pb
+*.tflite
+*.gguf
+*.model
+*.weights
+
+# Model directories
+checkpoints/
+models/
+facefusion/.assets/models/
+gpt_sovits_full/pretrained_models/
+utils/detection_*.pth
+
+# ============ VIRTUAL ENVIRONMENTS ============
+# All virtual environments (will be created fresh)
+venv/
+*_venv/
+*_env/
+env/
+ENV/
+.venv/
+gradio_venv/
+sovits_venv/
+facefusion_venv/
+llama_venv/
+gpt_sovits_env/
+facefusion_env/
+
+# ============ RUNPOD-SPECIFIC (REMOVE) ============
+# Runpod files and configs
+runpod_handler.py
+Dockerfile.optimized
+docker-build-optimized.sh
+*runpod*
+runpod-volume/
+.runpod/
+
+# ============ UNUSED COMPONENTS ============
+# GPT-SoVITS (not needed for basic Wav2lip)
+gpt_sovits_full/
+gpt_sovits_env/
+
+# FaceFusion (heavy component, exclude if not essential)
+facefusion/
+facefusion_env/
+
+# Llama components (not needed)
+llama_venv/
+*llama*
+
+# ============ DEVELOPMENT FILES ============
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Version control
+.git/
+.gitignore
+.github/
+
+# ============ DOCUMENTATION & SAMPLES ============
+# Documentation
+*.md
+!README.md
+docs/
+documentation/
+
+# Sample/test files
+samples/
+sample_*/
+test_*/
+tests/
+*.test.*
+example*/
+
+# ============ OUTPUT & TEMPORARY FILES ============
+# Output directories
+output/
+outputs/
+results/
+temp/
+tmp/
+*.tmp
+*.log
+*.cache
+
+# Media files (samples/outputs)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+
+# ============ BUILD ARTIFACTS ============
+# Python build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Node (if any)
+node_modules/
+package-lock.json
+yarn.lock
+
+# ============ CONFIG & SECRETS ============
+# Environment files
+.env
+.env.*
+*.key
+*.pem
+*.p12
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# ============ JUPYTER & RESEARCH ============
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Research data
+data/
+datasets/
+*.csv
+*.json
+*.xml
+*.yaml
+*.yml
+
+# ============ DOCKER FILES ============
+# Other Dockerfiles
+Dockerfile*
+!Dockerfile.gcr
+docker-compose*
+.dockerignore*
+!.dockerignore.gcr
+
+# ============ SYSTEM FILES ============
+.Trashes
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+
+# ============ ALLOW ESSENTIAL FILES ============
+# Explicitly include essential Python files
+!gradio_frontend/wav2lip_sovits_llama_integrated.py
+!face_detection/
+!Wav2Lip/
+!requirements.txt
+!gradio_frontend/requirements.txt

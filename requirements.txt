@@ -1,0 +1,23 @@
+# PyTorch with CUDA 12.1 support
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
+torchaudio==2.4.1+cu121
+--index-url https://download.pytorch.org/whl/cu121
+
+# ONNX Runtime with CUDA 12 support
+onnxruntime-gpu==1.22.0
+
+# Other dependencies
+opencv-python==4.10.0.84
+ffmpeg-python==0.2.0
+numpy==1.24.3
+Pillow==10.4.0
+gradio==4.44.0
+tqdm==4.66.5
+scipy==1.11.4
+librosa==0.10.2
+psutil>=5.9.0
+
+# Runpod serverless
+runpod==1.7.3
+requests==2.32.3

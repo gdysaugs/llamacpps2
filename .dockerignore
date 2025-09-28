@@ -1,0 +1,120 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments (we'll create fresh ones in Docker)
+venv/
+gradio_venv/
+sovits_venv/
+facefusion_venv/
+llama_venv/
+gpt_sovits_env/
+*_venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+docs/
+README*
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+*.log
+*.cache
+
+# Output files (will be generated in container)
+output/
+outputs/
+results/
+*.mp4
+*.wav
+*.mp3
+*.avi
+*.mov
+
+# Model files (will download in container or mount from volume)
+# TEMPORARILY ALLOWING models/ directory for rebuild
+# models/
+*.pth
+*.onnx
+*.pt
+*.safetensors
+*.bin
+# *.ckpt  # Allow ckpt files temporarily
+*.pkl
+*.h5
+*.hdf5
+*.pb
+checkpoints/
+facefusion/.assets/models/
+gpt_sovits_full/pretrained_models/
+utils/detection_*.pth
+
+# Test files
+test_*
+tests/
+*.test.*
+
+# Docker files (not needed in context)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+
+# Node modules (if any)
+node_modules/
+
+# Large media files for testing
+samples/
+sample_videos/
+sample_audios/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# System files
+Thumbs.db
+.Trashes
+
+# Runpod specific
+runpod-volume/
+.runpod/

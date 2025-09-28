@@ -1,0 +1,32 @@
+# Ignore all models
+models/
+
+# Ignore large model files >100MB
+GPT_SoVITS/pretrained_models/sv/pretrained_eres2netv2w24s4ep4.ckpt
+utils/detection_Resnet50_Final.pth
+faceID/recognition.onnx
+
+# Ignore nested git repositories and submodules
+facefusion/
+gpt_sovits_full/
+
+# Ignore virtual environments
+venv/
+facefusion_env/
+gpt_sovits_env/
+llama_venv/
+gradio_frontend/gradio_venv/
+env/
+ENV/
+**/venv/
+**/*_venv/
+
+# Common ignore patterns
+*.pyc
+__pycache__/
+*.so
+*.dylib
+*.dll
+.DS_Store
+.env
+*.log

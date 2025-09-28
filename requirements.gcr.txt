@@ -1,0 +1,35 @@
+# GCR-optimized minimal requirements
+# Target: Essential packages only for Wav2lip
+
+# Core ML framework (GPU version)
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
+--index-url https://download.pytorch.org/whl/cu121
+
+# Computer Vision (headless for smaller size)
+opencv-python-headless==4.10.0.84
+
+# Web interface
+gradio==4.44.0
+
+# Essential scientific packages
+numpy==1.24.3
+Pillow==10.4.0
+scipy==1.11.4
+
+# Audio processing (lightweight)
+librosa==0.10.2
+
+# Utilities
+imageio==2.36.1
+tqdm==4.66.5
+numba==0.60.0
+
+# Cloud storage (if needed)
+google-cloud-storage
+
+# Remove these heavy packages if not essential:
+# - onnxruntime-gpu (saves ~500MB)
+# - gfpgan, facexlib, basicsr (saves ~1GB+)
+# - realesrgan (saves ~200MB)
+# - ffmpeg-python (use system ffmpeg instead)

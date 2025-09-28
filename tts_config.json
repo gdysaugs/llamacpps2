@@ -1,0 +1,17 @@
+{
+  "model_config_path": "gpt_sovits_full/GPT_SoVITS/configs/tts_infer.yaml",
+  "ref_audio_path": "/tmp/gradio/66657a7f2251414b9805a4ab02c55b188a2b2bbfa6a3b33488c6295d60b6ce98/e_01_08 1.wav",
+  "output_dir": "output",
+  "tts_params": {
+    "top_k": 5,
+    "top_p": 1,
+    "temperature": 2.0,
+    "text_split_method": "cut0",
+    "speed_factor": 1.2,
+    "batch_size": 4,
+    "parallel_infer": true,
+    "streaming_mode": false,
+    "ref_free": true,
+    "seed": 42
+  }
+}
