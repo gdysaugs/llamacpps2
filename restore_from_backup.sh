@@ -7,13 +7,16 @@ echo ""
 
 # バックアップの存在確認
 BACKUP_DIR="/mnt/c/wav2lip_backup"
-if [ ! -d "$BACKUP_DIR" ]; then
-    echo "エラー: バックアップディレクトリが見つかりません: $BACKUP_DIR"
-    echo "SETUP_AFTER_CLONE.md を参照してバックアップを作成してください。"
-    exit 1
+USE_BACKUP=false
+
+if [ -d "$BACKUP_DIR" ]; then
+    echo "✓ バックアップディレクトリ確認: $BACKUP_DIR"
+    USE_BACKUP=true
+else
+    echo "⚠ バックアップが見つかりません"
+    echo "→ モデルファイルは自動ダウンロードします"
 fi
 
-echo "✓ バックアップディレクトリ確認: $BACKUP_DIR"
 echo ""
 
 # 1. モデルファイルの復元
@@ -21,42 +24,41 @@ echo "========================================="
 echo "1. モデルファイルを復元中..."
 echo "========================================="
 
-if [ -d "$BACKUP_DIR/models" ]; then
-    echo "models/ フォルダをコピー中（これには時間がかかります）..."
-    cp -r "$BACKUP_DIR/models" ./
-    echo "✓ models/ フォルダを復元しました"
+if [ "$USE_BACKUP" = true ]; then
+    # バックアップから復元
+    if [ -d "$BACKUP_DIR/models" ]; then
+        echo "models/ フォルダをコピー中（これには時間がかかります）..."
+        cp -r "$BACKUP_DIR/models" ./
+        echo "✓ models/ フォルダを復元しました"
+    else
+        echo "⚠ 警告: $BACKUP_DIR/models が見つかりません"
+    fi
+
+    # 大きなモデルファイルの復元
+    mkdir -p GPT_SoVITS/pretrained_models/sv utils faceID
+
+    if [ -f "$BACKUP_DIR/large_models/pretrained_eres2netv2w24s4ep4.ckpt" ]; then
+        cp "$BACKUP_DIR/large_models/pretrained_eres2netv2w24s4ep4.ckpt" GPT_SoVITS/pretrained_models/sv/
+        echo "✓ pretrained_eres2netv2w24s4ep4.ckpt を復元しました"
+    fi
+
+    if [ -f "$BACKUP_DIR/large_models/detection_Resnet50_Final.pth" ]; then
+        cp "$BACKUP_DIR/large_models/detection_Resnet50_Final.pth" utils/
+        echo "✓ detection_Resnet50_Final.pth を復元しました"
+    fi
+
+    if [ -f "$BACKUP_DIR/large_models/recognition.onnx" ]; then
+        cp "$BACKUP_DIR/large_models/recognition.onnx" faceID/
+        echo "✓ recognition.onnx を復元しました"
+    fi
 else
-    echo "⚠ 警告: $BACKUP_DIR/models が見つかりません"
-fi
+    # バックアップがない場合は自動ダウンロード
+    echo "モデルファイルを自動ダウンロード中..."
+    echo "これには時間がかかります（約10-20分）..."
+    echo ""
 
-echo ""
-
-# 2. 大きなモデルファイルの復元
-echo "========================================="
-echo "2. 大きなモデルファイルを復元中..."
-echo "========================================="
-
-mkdir -p GPT_SoVITS/pretrained_models/sv utils faceID
-
-if [ -f "$BACKUP_DIR/large_models/pretrained_eres2netv2w24s4ep4.ckpt" ]; then
-    cp "$BACKUP_DIR/large_models/pretrained_eres2netv2w24s4ep4.ckpt" GPT_SoVITS/pretrained_models/sv/
-    echo "✓ pretrained_eres2netv2w24s4ep4.ckpt を復元しました"
-else
-    echo "⚠ 警告: pretrained_eres2netv2w24s4ep4.ckpt が見つかりません"
-fi
-
-if [ -f "$BACKUP_DIR/large_models/detection_Resnet50_Final.pth" ]; then
-    cp "$BACKUP_DIR/large_models/detection_Resnet50_Final.pth" utils/
-    echo "✓ detection_Resnet50_Final.pth を復元しました"
-else
-    echo "⚠ 警告: detection_Resnet50_Final.pth が見つかりません"
-fi
-
-if [ -f "$BACKUP_DIR/large_models/recognition.onnx" ]; then
-    cp "$BACKUP_DIR/large_models/recognition.onnx" faceID/
-    echo "✓ recognition.onnx を復元しました"
-else
-    echo "⚠ 警告: recognition.onnx が見つかりません"
+    chmod +x download_all_models.sh
+    ./download_all_models.sh
 fi
 
 echo ""
